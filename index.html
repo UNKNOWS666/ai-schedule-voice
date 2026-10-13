@@ -17,7 +17,7 @@
 </head>
 <body>
   <h2>🎙 AI Schedule Voice</h2>
-  <p>Ucapkan permintaan jadwal dalam bahasa Indonesia.</p>
+  <p id="intro">Ucapkan permintaan jadwal dalam bahasa Indonesia.</p>
   <button id="start" type="button">Mulai bicara</button>
   <button id="stop" type="button" disabled>Berhenti</button>
   <p id="status" role="status" aria-live="polite">Siap digunakan.</p>
@@ -26,7 +26,7 @@
     <button id="copy" type="button">Salin teks</button>
     <button id="send" type="button">Kirim ke AI Schedule Agent</button>
   </div>
-  <p class="hint">Cara pakai: klik Mulai bicara, ucapkan jadwalmu, klik Berhenti, lalu klik Kirim ke AI Schedule Agent. Halaman ini perlu dibuka melalui tombol Bicara di aplikasi utama agar teks bisa dikirim kembali.</p>
+  <p class="hint" id="hint">Jika dibuka dari AI Schedule Agent, mikrofon akan mulai otomatis. Setelah selesai bicara, teks dikirim kembali dan jendela ini menutup sendiri.</p>
 
   <script>
     const statusEl = document.getElementById('status');
@@ -36,8 +36,47 @@
     const copyBtn = document.getElementById('copy');
     const sendBtn = document.getElementById('send');
     const SpeechAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const autoMode = new URLSearchParams(window.location.search).get('autostart') === '1';
     let recognition = null;
     let isListening = false;
+    let silenceTimer = null;
+    let speechError = false;
+    let sent = false;
+
+    function sendToParent() {
+      if (sent) return;
+      const text = resultEl.value.trim();
+      if (!text) {
+        statusEl.textContent = 'Belum ada ucapan yang terbaca. Tutup jendela ini dan tekan Bicara lagi.';
+        return;
+      }
+      if (!window.opener || window.opener.closed) {
+        statusEl.textContent = 'Aplikasi utama tidak terhubung. Buka halaman ini dari tombol Bicara di AI Schedule Agent.';
+        return;
+      }
+      try {
+        window.opener.postMessage({ type: 'AI_SCHEDULE_VOICE_RESULT', text }, '*');
+        sent = true;
+        statusEl.textContent = 'Teks terkirim. Kembali ke AI Schedule Agent…';
+        startBtn.disabled = true;
+        stopBtn.disabled = true;
+        sendBtn.disabled = true;
+        setTimeout(() => window.close(), 350);
+      } catch (error) {
+        statusEl.textContent = 'Gagal mengirim teks. Salin teks atau coba lagi.';
+      }
+    }
+
+    function startListening() {
+      if (!recognition || isListening) return;
+      speechError = false;
+      resultEl.value = '';
+      try {
+        recognition.start();
+      } catch (error) {
+        statusEl.textContent = 'Browser tidak dapat memulai mikrofon otomatis. Tekan Mulai bicara untuk mencoba.';
+      }
+    }
 
     if (!SpeechAPI) {
       statusEl.textContent = 'Browser ini belum mendukung pengenalan suara. Coba Chrome versi terbaru.';
@@ -53,7 +92,7 @@
         isListening = true;
         startBtn.disabled = true;
         stopBtn.disabled = false;
-        statusEl.textContent = 'Mendengarkan… silakan bicara.';
+        statusEl.textContent = 'Mendengarkan… ucapkan permintaan jadwalmu.';
       };
 
       recognition.onresult = (event) => {
@@ -62,69 +101,66 @@
           text += event.results[i][0].transcript + ' ';
         }
         resultEl.value = text.trim();
+        if (autoMode && resultEl.value) {
+          clearTimeout(silenceTimer);
+          // Setelah sekitar 2,8 detik tanpa hasil suara baru, selesaikan transkripsi otomatis.
+          silenceTimer = setTimeout(() => {
+            if (recognition && isListening) recognition.stop();
+          }, 2800);
+        }
       };
 
       recognition.onerror = (event) => {
-        statusEl.textContent = 'Pengenalan suara gagal (' + event.error + '). Periksa izin mikrofon dan koneksi internet.';
+        speechError = true;
+        statusEl.textContent = 'Pengenalan suara gagal (' + event.error + '). Periksa izin mikrofon dan koneksi internet, lalu tekan Mulai bicara.';
       };
 
       recognition.onend = () => {
         isListening = false;
         startBtn.disabled = false;
         stopBtn.disabled = true;
-        if (resultEl.value.trim()) {
-          statusEl.textContent = 'Selesai. Periksa teks, lalu klik “Kirim ke AI Schedule Agent”.';
+        clearTimeout(silenceTimer);
+        if (autoMode && resultEl.value.trim() && !speechError) {
+          sendToParent();
+        } else if (resultEl.value.trim()) {
+          statusEl.textContent = 'Selesai. Periksa teks; gunakan tombol Kirim jika ingin mengirimnya.';
+        } else if (autoMode && !speechError) {
+          statusEl.textContent = 'Belum ada ucapan yang terbaca. Tekan Mulai bicara untuk mencoba lagi.';
         }
       };
 
       startBtn.addEventListener('click', () => {
-        try {
-          if (isListening) return;
-          resultEl.value = '';
-          recognition.start();
-        } catch (error) {
-          statusEl.textContent = 'Mikrofon belum bisa dimulai. Muat ulang halaman lalu coba lagi.';
-        }
+        if (isListening) return;
+        resultEl.value = '';
+        startListening();
       });
-
       stopBtn.addEventListener('click', () => {
+        clearTimeout(silenceTimer);
         if (recognition && isListening) recognition.stop();
       });
     }
 
     copyBtn.addEventListener('click', async () => {
       const text = resultEl.value.trim();
-      if (!text) {
-        statusEl.textContent = 'Belum ada teks untuk disalin.';
-        return;
-      }
+      if (!text) { statusEl.textContent = 'Belum ada teks untuk disalin.'; return; }
       try {
         await navigator.clipboard.writeText(text);
         statusEl.textContent = 'Teks berhasil disalin.';
       } catch (error) {
-        resultEl.focus();
-        resultEl.select();
+        resultEl.focus(); resultEl.select();
         statusEl.textContent = 'Teks dipilih. Tekan Ctrl+C untuk menyalin.';
       }
     });
 
-    sendBtn.addEventListener('click', () => {
-      const text = resultEl.value.trim();
-      if (!text) {
-        statusEl.textContent = 'Ucapkan permintaan terlebih dahulu.';
-        return;
-      }
-      if (!window.opener || window.opener.closed) {
-        statusEl.textContent = 'Tidak terhubung ke aplikasi utama. Tutup halaman ini lalu buka kembali melalui tombol Bicara di AI Schedule Agent.';
-        return;
-      }
-      try {
-        window.opener.postMessage({ type: 'AI_SCHEDULE_VOICE_RESULT', text: text }, '*');
-        statusEl.textContent = 'Teks dikirim. Kembali ke tab AI Schedule Agent.';
-      } catch (error) {
-        statusEl.textContent = 'Gagal mengirim teks. Buka kembali halaman ini melalui tombol Bicara di aplikasi utama.';
-      }
-    });
+    sendBtn.addEventListener('click', sendToParent);
+
+    // Saat dibuka dari tombol Bicara aplikasi utama, coba mulai otomatis.
+    if (autoMode && SpeechAPI) {
+      document.getElementById('intro').textContent = 'Mikrofon akan mulai otomatis. Ucapkan permintaanmu; setelah jeda singkat, teks dikirim kembali.';
+      startBtn.textContent = 'Coba mulai bicara';
+      sendBtn.textContent = 'Kirim sekarang';
+      setTimeout(startListening, 450);
+    }
   </script>
 </body>
 </html>
