@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Schedule Voice</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f7fb;
+      color: #172033;
+    }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      box-sizing: border-box;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccd3df;
+      border-radius: 10px;
+    }
+    button {
+      padding: 12px 16px;
+      margin: 8px 4px 8px 0;
+      border: 0;
+      border-radius: 8px;
+      background: #2357d6;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    #status { color: #555; }
+  </style>
+</head>
+<body>
+  <h2>🎙 AI Schedule Voice</h2>
+  <p>Ucapkan permintaan jadwalmu dalam bahasa Indonesia.</p>
+
+  <button id="start">Mulai bicara</button>
+  <button id="stop">Berhenti</button>
+
+  <p id="status">Siap digunakan.</p>
+  <textarea id="result" placeholder="Hasil ucapan akan muncul di sini..."></textarea>
+  <br>
+  <button id="copy">Salin teks</button>
+
+  <script>
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+
+    const SpeechAPI =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    let recognition;
+
+    if (!SpeechAPI) {
+      status.textContent =
+        'Browser ini belum mendukung pengenalan suara. Coba Google Chrome.';
+      document.getElementById('start').disabled = true;
+    } else {
+      recognition = new SpeechAPI();
+      recognition.lang = 'id-ID';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        status.textContent = 'Mendengarkan... Silakan bicara.';
+      };
+
+      recognition.onresult = (event) => {
+        let text = '';
+
+        for (let i = 0; i < event.results.length; i++) {
+          text += event.results[i][0].transcript + ' ';
+        }
+
+        result.value = text.trim();
+      };
+
+      recognition.onerror = (event) => {
+        status.textContent =
+          'Gagal: ' + event.error +
+          '. Periksa izin mikrofon dan koneksi internet.';
+      };
+
+      recognition.onend = () => {
+        status.textContent = 'Selesai. Periksa hasil ucapanmu.';
+      };
+
+      document.getElementById('start').onclick = () => {
+        try {
+          recognition.start();
+        } catch (e) {
+          status.textContent =
+            'Pengenalan suara sedang berjalan. Tekan Berhenti lalu coba lagi.';
+        }
+      };
+
+      document.getElementById('stop').onclick = () => {
+        recognition.stop();
+      };
+    }
+
+    document.getElementById('copy').onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(result.value);
+        status.textContent =
+          'Teks berhasil disalin. Tempelkan ke AI Schedule Agent.';
+      } catch (e) {
+        result.select();
+        status.textContent =
+          'Pilih teks lalu tekan Ctrl+C untuk menyalinnya.';
+      }
+    };
+  </script>
+</body>
+</html>
